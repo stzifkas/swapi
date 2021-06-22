@@ -1,44 +1,75 @@
 import sys
 import requests
-from csv import DictReader, DictWriter
-
 from requests.models import HTTPError 
+from utilities import config,helpers,dbhandler
 
+base_url = config.base_url
 world_flag = False
-base_url = "https://www.swapi.tech/api"
 
 class World(object):
     def __init__(self, kwargs):
-        self.name = kwargs['name']
-        self.population = kwargs['population']
-        self.rotation_period = kwargs['rotation_period']
-        self.orbital_period = kwargs['orbital_period']
+        properties = kwargs['properties']
+        self.id = int(kwargs['uid'])
+        self.name = properties['name']
+        self.population = properties['population']
+        self.rotation_period = properties['rotation_period']
+        self.orbital_period = properties['orbital_period']
+        dbhandler.commit_world(id=self.id, name=self.name, population=self.population, rotation_period=self.rotation_period, orbital_period = self.orbital_period)
+
     
     def __str__(self):
         day,year = self.compare_to_earth()
         s = f"Name: {self.name}\nPopulation: {self.population}\nOn {self.name}, 1 year on earth is {year:.2f} years and 1 day {day:.2} days\n"
         return s
-        
+
     def compare_to_earth(self):
         day = float(self.rotation_period)/24
         year = float(self.orbital_period)/365
         return day,year
 
 class Person(object):
-    def __init__(self, kwargs):
-        self.name = kwargs['name']
-        self.height = kwargs['height']
-        self.mass = kwargs['mass']
-        self.birth_year = kwargs['birth_year']
-        self.homeworld = self.get_homeworld(url=kwargs['homeworld'])
+    def __init__(self, **kwargs):
+        properties = kwargs['properties']
+        self.id = int(kwargs['id'])
+        self.name = properties['name']
+        self.height = properties['height']
+        self.mass = properties['mass']
+        self.birth_year = properties['birth_year']
+        if kwargs['cached']:
+            if world_flag:
+                parameters = {}
+                cached_world = dbhandler.fetch_world(person_id = self.id)
+                parameters['properties'] = { 'name': cached_world[0],
+                                            'population': cached_world[1],
+                                            'rotation_period': cached_world[3],
+                                            'orbital_period': cached_world[4]
+                }
+                parameters['uid'] = cached_world[2]
+                self.homeworld = World(parameters)
+        else:
+            if world_flag:
+                self.homeworld = self.get_homeworld(url=properties['homeworld'])
+                dbhandler.commit_person(
+                    id=self.id, 
+                    name=self.name, 
+                    height=self.height, 
+                    mass=self.mass, 
+                    birth_year=self.birth_year,
+                    worldid = self.homeworld.id)
+            else:
+                dbhandler.commit_person(
+                    id=self.id, 
+                    name=self.name, 
+                    height=self.height, 
+                    mass=self.mass, 
+                    birth_year=self.birth_year)
 
-    
     def get_homeworld(self,**kwargs):
         x = requests.get(kwargs['url'])
         if not x.json()['result']:
             raise HTTPError
         result = x.json()['result']
-        homeworld = World(result['properties'])
+        homeworld = World(result)
         return homeworld
 
     def __str__(self):
@@ -48,32 +79,31 @@ class Person(object):
             s += f"\nHomeworld\n---------\n{self.homeworld}\n"          
         return s
 
-
-def search_person(**kwargs):
-    persons = []
-    x = requests.get(
-        "/".join([base_url, f"people/?name={kwargs['search_query']}"]))
-    if not x.json()['result']:
-        raise HTTPError
-    for result in x.json()['result']:
-        persons.append(Person(result['properties']))
-    return persons
-
-
 def main():
     global world_flag
     if sys.argv[1] == "search":
+        cached = False
         if '--world' in sys.argv:
             world_flag = True
-        try:
-            results = search_person(search_query=sys.argv[2])
+        cache_person_ids,cache_time = dbhandler.is_cached(search_query=sys.argv[2],world_flag=world_flag)
+        if cache_person_ids:
+            cached = True
+            results = dbhandler.fetch_person(person_ids = cache_person_ids)
             for result in results:
-                print(result)
-        except HTTPError:
-            print("The force is not strong within you")
-        except Exception as e:
-            #TODO Print Help Message
-            print(e)
-
+                person = Person(properties = result['properties'], id = result['uid'], cached=cached)
+                print(person)
+            print(f"Cached: {cache_time}")
+        else:
+            try:
+                results = helpers.search_person(search_query=sys.argv[2])
+                for result in results:
+                    person = Person(properties = result['properties'], id = result['uid'], cached=cached)
+                    print(person)
+                    dbhandler.commit_search(personid = person.id, search_query=sys.argv[2],world_flag=str(world_flag))
+            except HTTPError:
+                print("The force is not strong within you")
+    elif sys.argv[1] == "cache" and sys.argv[2] == "--clean":
+        dbhandler.clean_tables()
+        print("removed cache")
 if __name__ == "__main__":
     main()

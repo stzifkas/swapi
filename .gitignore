@@ -1,2 +1,4 @@
 #VirtualEnv Directory
 /virtualenv-*
+/__pycache__
+__pycache__
