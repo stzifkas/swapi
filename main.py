@@ -91,7 +91,6 @@ class Person():
                 home_world_data = apihandler.homeworld_from_url(url=properties['homeworld'])
                 self.homeworld = World(properties=home_world_data['properties'],
                                         id=home_world_data['uid'])
-                print(self.homeworld.world_id)
                 dbhandler.commit_person(
                     id=self.person_id,
                     name=self.name,

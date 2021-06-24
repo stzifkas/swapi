@@ -9,6 +9,9 @@ def visualize():
     """Creates a pyplot for search queries visualization
     """
     search_data = dbhandler.fetch_searches()
+    if len(search_data) == 0:
+        print("Nothing to visualize yet")
+        return
     df = pd.DataFrame(search_data)
     df.columns = ['time','personid','query','has_world']
     colors = {'True':'red', 'False':'blue'}
